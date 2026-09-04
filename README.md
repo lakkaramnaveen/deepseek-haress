@@ -27,8 +27,14 @@ official DeepSeek properties.
    cp .env.example .env
    ```
 
-   Edit `.env` and set `DEEPSEEK_API_KEY` to a key from
-   https://platform.deepseek.com/api_keys
+   By default the harness calls DeepSeek's API directly (recommended:
+   cheapest, official, no re-hosting layer). Edit `.env` and set
+   `DEEPSEEK_API_KEY` to a key from https://platform.deepseek.com/api_keys
+
+   To route through OpenRouter instead (useful if you want automatic
+   fallback across hosts, or plan to compare DeepSeek against other models
+   later), set `DEEPSEEK_PROVIDER=openrouter` and `OPENROUTER_API_KEY` to a
+   key from https://openrouter.ai/keys
 
 ## Usage
 
