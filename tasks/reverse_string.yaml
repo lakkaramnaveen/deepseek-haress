@@ -1,0 +1,13 @@
+id: reverse_string
+language: python
+prompt: |
+  Write a Python function `reverse_string(s)` that returns the input string
+  reversed, without using slicing (e.g. no `s[::-1]`).
+test_code: |
+  from solution import reverse_string
+
+  assert reverse_string("hello") == "olleh"
+  assert reverse_string("") == ""
+  assert reverse_string("a") == "a"
+  assert reverse_string("racecar") == "racecar"
+  print("HARNESS_PASS")

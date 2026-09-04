@@ -1,0 +1,16 @@
+id: is_prime_js
+language: javascript
+prompt: |
+  Write a JavaScript function `isPrime(n)` that returns true if n is a prime
+  number (n is a positive integer) and false otherwise. Export it with
+  `module.exports = { isPrime };`.
+test_code: |
+  const { isPrime } = require("./solution.js");
+  const assert = require("assert");
+
+  assert.strictEqual(isPrime(1), false);
+  assert.strictEqual(isPrime(2), true);
+  assert.strictEqual(isPrime(17), true);
+  assert.strictEqual(isPrime(18), false);
+  assert.strictEqual(isPrime(97), true);
+  console.log("HARNESS_PASS");

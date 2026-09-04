@@ -1,0 +1,17 @@
+id: fizzbuzz
+language: python
+prompt: |
+  Write a Python function `fizzbuzz(n)` that returns a list of strings for
+  integers 1..n inclusive. For multiples of 3 use "Fizz", for multiples of 5
+  use "Buzz", for multiples of both use "FizzBuzz", otherwise the number
+  itself as a string.
+test_code: |
+  from solution import fizzbuzz
+
+  result = fizzbuzz(15)
+  expected = [
+      "1", "2", "Fizz", "4", "Buzz", "Fizz", "7", "8", "Fizz", "Buzz",
+      "11", "Fizz", "13", "14", "FizzBuzz",
+  ]
+  assert result == expected, f"got {result!r}, expected {expected!r}"
+  print("HARNESS_PASS")
