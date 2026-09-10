@@ -52,6 +52,40 @@ python3 cli.py run --task fizzbuzz
 Each run prints a PASS/FAIL summary and writes a full JSON record (prompt,
 generated code, stdout/stderr, timing) to `results/`.
 
+## Codebase translation agent
+
+`harness/translate_agent.py` translates an entire codebase from one
+language to another, file by file, keeping cross-file imports consistent:
+
+```bash
+python3 cli.py translate \
+  --src ./myapp --out ./myapp-js \
+  --from python --to javascript \
+  --verify --run "node main.js"
+```
+
+- `--src` / `--out`: source codebase and where to write the translation.
+- `--from` / `--to`: any of `python, javascript, typescript, go, ruby,
+  java, rust, php, c, cpp, csharp`.
+- Files are discovered recursively (skipping `node_modules`, `.git`,
+  `venv`, `dist`, build output, etc.), translated in a dependency-friendly
+  order (leaf files first, `main`/`index`/`app`-style entry points last),
+  and non-source files (docs, configs, assets) are copied over as-is
+  unless `--no-copy-other` is passed.
+- Each file's prompt includes a running manifest of already-translated
+  sibling paths, so later files import the new filenames/extensions
+  instead of the original ones.
+- `--verify --run "<cmd>"` (optionally with `--install "<cmd>"` and
+  `--network` if that install needs internet) executes the translated
+  project inside the same kind of disposable, resource-capped Docker
+  sandbox used for scoring tasks above -- this is the actual proof the
+  translation runs, not just that it looks plausible.
+
+This is a best-effort translation, not a compiler: review the output for
+anything language-specific the model may have approximated (concurrency
+primitives, standard-library quirks, package-manager manifests), and use
+`--verify` with your project's real test command whenever one exists.
+
 ## How it works
 
 1. `harness/client.py` sends the task prompt to DeepSeek's chat completions
@@ -85,11 +119,12 @@ A non-zero exit code (e.g. a failed `assert`) counts as a failed task.
 ## Project layout
 
 ```
-cli.py              entrypoint
+cli.py                  entrypoint
 harness/
-  client.py          DeepSeek API wrapper
-  sandbox.py          Docker sandbox runner
-  runner.py           orchestrates client + sandbox, records results
-tasks/               task definitions (prompt + tests)
-results/             JSON result records (gitignored)
+  client.py              DeepSeek API wrapper (task solving + file translation)
+  sandbox.py             Docker sandbox runner (single-file tasks + whole projects)
+  runner.py              orchestrates client + sandbox, records results
+  translate_agent.py     whole-codebase translation agent
+tasks/                  task definitions (prompt + tests)
+results/                JSON result records (gitignored)
 ```

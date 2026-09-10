@@ -27,6 +27,26 @@ SYSTEM_PROMPT = (
     "before or after the code block."
 )
 
+TRANSLATE_SYSTEM_PROMPT = (
+    "You are an expert polyglot software engineer performing a "
+    "whole-codebase source-to-source translation from {source} to "
+    "{target}. You are shown one file at a time from a larger project, "
+    "plus a manifest of sibling files already translated in this same "
+    "run. Rules:\n"
+    "1. Preserve the program's exact behavior, structure, and public "
+    "   names (functions, classes, exported symbols) as closely as "
+    "   idiomatic {target} allows.\n"
+    "2. Keep comments, translating their language but not their meaning.\n"
+    "3. Rewrite import/require paths to point at the already-translated "
+    "   sibling files listed in the manifest (matching their new "
+    "   extensions and any target-language conventions), not the "
+    "   original {source} paths.\n"
+    "4. Do not invent functionality that was not in the original file.\n"
+    "5. Respond with a single fenced code block containing only the "
+    "   complete translated file contents -- no explanations before or "
+    "   after the code block, and no partial/truncated output."
+)
+
 CODE_BLOCK_RE = re.compile(r"```(?:\w+)?\n(.*?)```", re.DOTALL)
 
 
@@ -58,6 +78,51 @@ class DeepSeekClient:
             temperature=temperature,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+        text = response.choices[0].message.content or ""
+        code = self._extract_code(text)
+        return {
+            "raw_response": text,
+            "code": code,
+            "usage": dict(response.usage) if response.usage else None,
+        }
+
+    def translate_file(
+        self,
+        source_code: str,
+        source_language: str,
+        target_language: str,
+        rel_path: str,
+        manifest: str = "",
+        temperature: float = 0.1,
+    ) -> dict:
+        """Ask the model to translate one file of a larger codebase.
+
+        `rel_path` is the file's path relative to the project root (helps
+        the model understand its role, e.g. `utils/format.py`). `manifest`
+        is a short text listing sibling files already translated in this
+        run (original path -> new path), so imports stay consistent
+        across files.
+        """
+        system_prompt = TRANSLATE_SYSTEM_PROMPT.format(
+            source=source_language, target=target_language
+        )
+        user_parts = [f"File: {rel_path}"]
+        if manifest:
+            user_parts.append(
+                "Files already translated in this project "
+                f"(original -> new):\n{manifest}"
+            )
+        user_parts.append(f"Source ({source_language}):\n```\n{source_code}\n```")
+        user_prompt = "\n\n".join(user_parts)
+
+        response = self.client.chat.completions.create(
+            model=self.model,
+            temperature=temperature,
+            messages=[
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
         )
