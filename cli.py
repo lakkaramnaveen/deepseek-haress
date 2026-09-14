@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 
 from harness.client import DeepSeekClient
 from harness.runner import load_all_tasks, run_all
+from harness.sandbox import PROJECT_IMAGES
 from harness.translate_agent import LANGUAGE_EXTENSIONS, translate_codebase, verify_codebase
 
 
@@ -76,6 +77,17 @@ def main():
     if args.command == "translate":
         if args.verify and not args.run_cmd:
             print("Error: --verify requires --run", file=sys.stderr)
+            sys.exit(1)
+
+        # Check this before translating anything: failing here is free,
+        # failing after a full paid translation run is not.
+        if args.verify and args.target_language not in PROJECT_IMAGES:
+            print(
+                f"Error: --verify doesn't support target language "
+                f"{args.target_language!r} yet. Supported: "
+                f"{', '.join(sorted(PROJECT_IMAGES))}",
+                file=sys.stderr,
+            )
             sys.exit(1)
 
         try:

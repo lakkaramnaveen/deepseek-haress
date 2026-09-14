@@ -31,23 +31,32 @@ TRANSLATE_SYSTEM_PROMPT = (
     "You are an expert polyglot software engineer performing a "
     "whole-codebase source-to-source translation from {source} to "
     "{target}. You are shown one file at a time from a larger project, "
-    "plus a manifest of sibling files already translated in this same "
-    "run. Rules:\n"
+    "plus a manifest mapping every file in the project from its original "
+    "path to its new path. Rules:\n"
     "1. Preserve the program's exact behavior, structure, and public "
     "   names (functions, classes, exported symbols) as closely as "
     "   idiomatic {target} allows.\n"
     "2. Keep comments, translating their language but not their meaning.\n"
-    "3. Rewrite import/require paths to point at the already-translated "
-    "   sibling files listed in the manifest (matching their new "
-    "   extensions and any target-language conventions), not the "
-    "   original {source} paths.\n"
+    "3. Rewrite import/require paths using the manifest's new paths "
+    "   (matching their new extensions and any target-language "
+    "   conventions), not the original {source} paths -- the manifest "
+    "   covers every file in the project, including ones that import "
+    "   *this* file, so use it even for forward references.\n"
     "4. Do not invent functionality that was not in the original file.\n"
     "5. Respond with a single fenced code block containing only the "
     "   complete translated file contents -- no explanations before or "
     "   after the code block, and no partial/truncated output."
 )
 
-CODE_BLOCK_RE = re.compile(r"```(?:\w+)?\n(.*?)```", re.DOTALL)
+# Matches a fenced code block: an opening ``` (optionally followed by a
+# language tag) through to the LAST closing ``` in the response. Greedy on
+# purpose: a translated whole file can itself legitimately contain a
+# ``` example inside a comment or docstring, and a non-greedy match would
+# stop at that *inner* fence and silently truncate everything after it.
+# Since we always ask for a single fenced block with nothing else around
+# it, capturing through to the final ``` is the correct reading of "give
+# me everything you meant as the code block".
+CODE_BLOCK_RE = re.compile(r"```(?:\w+)?\n(.*)```", re.DOTALL)
 
 
 class DeepSeekClient:
@@ -73,21 +82,7 @@ class DeepSeekClient:
     def generate_code(self, prompt: str, language: str, temperature: float = 0.2) -> dict:
         """Ask the model to solve a task. Returns raw text + extracted code."""
         user_prompt = f"Language: {language}\n\nTask:\n{prompt}"
-        response = self.client.chat.completions.create(
-            model=self.model,
-            temperature=temperature,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
-            ],
-        )
-        text = response.choices[0].message.content or ""
-        code = self._extract_code(text)
-        return {
-            "raw_response": text,
-            "code": code,
-            "usage": dict(response.usage) if response.usage else None,
-        }
+        return self._complete(SYSTEM_PROMPT, user_prompt, temperature)
 
     def translate_file(
         self,
@@ -102,22 +97,26 @@ class DeepSeekClient:
 
         `rel_path` is the file's path relative to the project root (helps
         the model understand its role, e.g. `utils/format.py`). `manifest`
-        is a short text listing sibling files already translated in this
-        run (original path -> new path), so imports stay consistent
-        across files.
+        is the project's full original-path -> new-path mapping (every
+        file, not just ones already translated), so imports -- including
+        forward references to files not yet translated -- stay consistent
+        across the whole project.
         """
         system_prompt = TRANSLATE_SYSTEM_PROMPT.format(
             source=source_language, target=target_language
         )
         user_parts = [f"File: {rel_path}"]
         if manifest:
-            user_parts.append(
-                "Files already translated in this project "
-                f"(original -> new):\n{manifest}"
-            )
+            user_parts.append(f"Project file manifest (original -> new):\n{manifest}")
         user_parts.append(f"Source ({source_language}):\n```\n{source_code}\n```")
         user_prompt = "\n\n".join(user_parts)
 
+        return self._complete(system_prompt, user_prompt, temperature)
+
+    def _complete(self, system_prompt: str, user_prompt: str, temperature: float) -> dict:
+        """Shared chat-completion call used by generate_code and
+        translate_file: send one system/user turn, extract the fenced
+        code block from the reply, and return both alongside token usage."""
         response = self.client.chat.completions.create(
             model=self.model,
             temperature=temperature,

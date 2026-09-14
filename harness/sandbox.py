@@ -6,7 +6,7 @@ host. This is meant to contain buggy/untrusted generated code during
 testing, not to withstand a deliberately adversarial attacker.
 
 Two entry points:
-  * run_in_sandbox        - single solution + test file (per-task harness)
+  * run_in_sandbox         - single solution + test file (per-task harness)
   * run_project_in_sandbox - a whole directory tree (codebase translation)
 """
 
@@ -26,12 +26,11 @@ RUN_CMD = {
     "javascript": ["node", "test.js"],
 }
 
-# Images used to *verify* a translated codebase. Broader than IMAGES above
-# since a translation target can be any of these even though the per-task
-# harness only scores python/javascript solutions.
+# Images used to *verify* a translated codebase. A superset of IMAGES
+# above (which only covers the two languages the per-task harness scores)
+# since a translation target can be any of these.
 PROJECT_IMAGES = {
-    "python": "python:3.11-slim",
-    "javascript": "node:20-slim",
+    **IMAGES,
     "typescript": "node:20-slim",
     "go": "golang:1.22-slim",
     "ruby": "ruby:3.3-slim",
@@ -56,10 +55,30 @@ def docker_available() -> bool:
     return shutil.which("docker") is not None
 
 
-def _run_docker(
-    docker_cmd: list[str],
-    timeout: int,
-) -> SandboxResult:
+def _error_result(message: str) -> SandboxResult:
+    return SandboxResult(
+        passed=False, stdout="", stderr="", returncode=-1, timed_out=False, error=message
+    )
+
+
+def _check_prerequisites(language: str, images: dict[str, str]) -> SandboxResult | None:
+    """Shared preflight for both sandbox entry points: confirm Docker is
+    available and the language has an image. Returns an error
+    SandboxResult if something's wrong, or None if it's fine to proceed."""
+    if not docker_available():
+        return _error_result(
+            "Docker is not installed or not on PATH. Install Docker "
+            "Desktop (https://www.docker.com/products/docker-desktop/) "
+            "to run the sandboxed test bed."
+        )
+    if language not in images:
+        return _error_result(
+            f"Unsupported language: {language!r}. Supported: {list(images)}"
+        )
+    return None
+
+
+def _run_docker(docker_cmd: list[str], timeout: int) -> SandboxResult:
     try:
         proc = subprocess.run(
             docker_cmd,
@@ -92,29 +111,9 @@ def run_in_sandbox(
     test_code: str,
     timeout: int = DEFAULT_TIMEOUT_SECS,
 ) -> SandboxResult:
-    if not docker_available():
-        return SandboxResult(
-            passed=False,
-            stdout="",
-            stderr="",
-            returncode=-1,
-            timed_out=False,
-            error=(
-                "Docker is not installed or not on PATH. Install Docker "
-                "Desktop (https://www.docker.com/products/docker-desktop/) "
-                "to run the sandboxed test bed."
-            ),
-        )
-
-    if language not in IMAGES:
-        return SandboxResult(
-            passed=False,
-            stdout="",
-            stderr="",
-            returncode=-1,
-            timed_out=False,
-            error=f"Unsupported language: {language!r}. Supported: {list(IMAGES)}",
-        )
+    error = _check_prerequisites(language, IMAGES)
+    if error:
+        return error
 
     with tempfile.TemporaryDirectory(prefix="dsh-sandbox-") as tmpdir:
         workdir = Path(tmpdir)
@@ -158,32 +157,9 @@ def run_project_in_sandbox(
     rest of this harness's isolation policy); pass network=True when the
     project needs to install dependencies.
     """
-    if not docker_available():
-        return SandboxResult(
-            passed=False,
-            stdout="",
-            stderr="",
-            returncode=-1,
-            timed_out=False,
-            error=(
-                "Docker is not installed or not on PATH. Install Docker "
-                "Desktop (https://www.docker.com/products/docker-desktop/) "
-                "to run the sandboxed test bed."
-            ),
-        )
-
-    if language not in PROJECT_IMAGES:
-        return SandboxResult(
-            passed=False,
-            stdout="",
-            stderr="",
-            returncode=-1,
-            timed_out=False,
-            error=(
-                f"Unsupported language: {language!r}. Supported: "
-                f"{list(PROJECT_IMAGES)}"
-            ),
-        )
+    error = _check_prerequisites(language, PROJECT_IMAGES)
+    if error:
+        return error
 
     project_dir = Path(project_dir).resolve()
     full_cmd = f"{install_cmd} && {run_cmd}" if install_cmd else run_cmd

@@ -72,14 +72,24 @@ python3 cli.py translate \
   order (leaf files first, `main`/`index`/`app`-style entry points last),
   and non-source files (docs, configs, assets) are copied over as-is
   unless `--no-copy-other` is passed.
-- Each file's prompt includes a running manifest of already-translated
-  sibling paths, so later files import the new filenames/extensions
-  instead of the original ones.
+- Every file's prompt includes the *whole project's* original-path ->
+  new-path manifest, computed up front (it only depends on file
+  discovery, never on translated content), so imports resolve correctly
+  even for forward references and circular imports between siblings --
+  not just files translated earlier in the run.
+- If two source files would map to the same output path (e.g. `Foo.cc`
+  and `Foo.cpp` both translating to `Foo.cpp`), neither is written;
+  they're reported as failed with an explanation instead of one silently
+  overwriting the other. Extensions that carry real meaning (`.h`/`.hpp`
+  headers, `.jsx`/`.tsx`, `.mjs`/`.cjs`) are preserved rather than
+  collapsed onto the target language's default extension.
 - `--verify --run "<cmd>"` (optionally with `--install "<cmd>"` and
   `--network` if that install needs internet) executes the translated
   project inside the same kind of disposable, resource-capped Docker
   sandbox used for scoring tasks above -- this is the actual proof the
-  translation runs, not just that it looks plausible.
+  translation runs, not just that it looks plausible. `--to` languages
+  the sandbox can't execute yet are rejected immediately when combined
+  with `--verify`, before any (paid) translation happens.
 
 This is a best-effort translation, not a compiler: review the output for
 anything language-specific the model may have approximated (concurrency
