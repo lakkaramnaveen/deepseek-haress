@@ -42,8 +42,21 @@ def load_all_tasks() -> list[dict]:
 
 def run_task(task: dict, client: DeepSeekClient) -> TaskResult:
     start = time.monotonic()
-    generation = client.generate_code(task["prompt"], task["language"])
-    code = generation["code"]
+    try:
+        generation = client.generate_code(task["prompt"], task["language"])
+        code = generation["code"]
+    except Exception as exc:  # noqa: BLE001 - one bad API call shouldn't abort the whole batch
+        return TaskResult(
+            task_id=task["id"],
+            language=task["language"],
+            passed=False,
+            error=f"API call failed: {exc}",
+            model=client.model,
+            duration_secs=round(time.monotonic() - start, 2),
+            generated_code="",
+            stdout="",
+            stderr="",
+        )
 
     sandbox_result = run_in_sandbox(
         language=task["language"],

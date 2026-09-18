@@ -129,7 +129,7 @@ A non-zero exit code (e.g. a failed `assert`) counts as a failed task.
 ## Project layout
 
 ```
-cli.py                  entrypoint
+cli.py                  entrypoint (argument parsing + one function per subcommand)
 harness/
   client.py              DeepSeek API wrapper (task solving + file translation)
   sandbox.py             Docker sandbox runner (single-file tasks + whole projects)
@@ -137,4 +137,22 @@ harness/
   translate_agent.py     whole-codebase translation agent
 tasks/                  task definitions (prompt + tests)
 results/                JSON result records (gitignored)
+tests/                  unit tests (offline: no API key, Docker, or network needed)
 ```
+
+## Running the tests
+
+The test suite covers the pure, deterministic logic in each module --
+response parsing, sandbox preflight checks, task loading, and the
+translation agent's file discovery/collision/manifest handling -- using
+fakes for the DeepSeek client and no real Docker calls, so it runs
+anywhere in well under a second:
+
+```bash
+pip3 install -r requirements.txt -r requirements-dev.txt
+python3 -m pytest tests/ -v
+```
+
+It intentionally does not cover the live API or Docker paths end-to-end;
+those are exercised manually via `cli.py run` / `cli.py translate
+--verify` against a real key and a running Docker daemon.

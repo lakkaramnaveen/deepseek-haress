@@ -20,9 +20,7 @@ from harness.sandbox import PROJECT_IMAGES
 from harness.translate_agent import LANGUAGE_EXTENSIONS, translate_codebase, verify_codebase
 
 
-def main():
-    load_dotenv()
-
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="DeepSeek coding-model test harness")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -45,105 +43,124 @@ def main():
     tr_parser.add_argument("--network", action="store_true", help="Allow network access during --verify (needed for --install)")
     tr_parser.add_argument("--timeout", type=int, default=180, help="Sandbox timeout in seconds for --verify")
 
-    args = parser.parse_args()
+    return parser
 
-    if args.command == "list":
-        tasks = load_all_tasks()
-        if not tasks:
-            print("No tasks found in tasks/")
-            return
-        for t in tasks:
-            print(f"  {t['id']:<20} [{t['language']}]")
-        return
 
-    if args.command == "run":
-        try:
-            client = DeepSeekClient()
-        except RuntimeError as e:
-            print(f"Error: {e}", file=sys.stderr)
-            sys.exit(1)
+def cmd_list(args: argparse.Namespace) -> int:
+    tasks = load_all_tasks()
+    if not tasks:
+        print("No tasks found in tasks/")
+        return 0
+    for t in tasks:
+        print(f"  {t['id']:<20} [{t['language']}]")
+    return 0
 
-        try:
-            results = run_all(client, task_filter=args.task)
-        except ValueError as e:
-            print(f"Error: {e}", file=sys.stderr)
-            sys.exit(1)
 
-        passed = sum(1 for r in results if r.passed)
-        total = len(results)
-        print(f"\n{passed}/{total} tasks passed")
-        sys.exit(0 if passed == total else 1)
+def cmd_run(args: argparse.Namespace) -> int:
+    try:
+        client = DeepSeekClient()
+    except RuntimeError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
 
-    if args.command == "translate":
-        if args.verify and not args.run_cmd:
-            print("Error: --verify requires --run", file=sys.stderr)
-            sys.exit(1)
+    try:
+        results = run_all(client, task_filter=args.task)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
 
-        # Check this before translating anything: failing here is free,
-        # failing after a full paid translation run is not.
-        if args.verify and args.target_language not in PROJECT_IMAGES:
-            print(
-                f"Error: --verify doesn't support target language "
-                f"{args.target_language!r} yet. Supported: "
-                f"{', '.join(sorted(PROJECT_IMAGES))}",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+    passed = sum(1 for r in results if r.passed)
+    total = len(results)
+    print(f"\n{passed}/{total} tasks passed")
+    return 0 if passed == total else 1
 
-        try:
-            client = DeepSeekClient()
-        except RuntimeError as e:
-            print(f"Error: {e}", file=sys.stderr)
-            sys.exit(1)
 
-        def on_progress(i, total, rel_path):
-            print(f"  [{i}/{total}] translating {rel_path} ...")
+def cmd_translate(args: argparse.Namespace) -> int:
+    if args.verify and not args.run_cmd:
+        print("Error: --verify requires --run", file=sys.stderr)
+        return 1
 
+    # Check this before translating anything: failing here is free,
+    # failing after a full paid translation run is not.
+    if args.verify and args.target_language not in PROJECT_IMAGES:
         print(
-            f"Translating {args.src} ({args.source_language}) -> "
-            f"{args.out} ({args.target_language})"
+            f"Error: --verify doesn't support target language "
+            f"{args.target_language!r} yet. Supported: "
+            f"{', '.join(sorted(PROJECT_IMAGES))}",
+            file=sys.stderr,
         )
-        try:
-            report = translate_codebase(
-                client,
-                src_dir=args.src,
-                out_dir=args.out,
-                source_language=args.source_language,
-                target_language=args.target_language,
-                copy_other_files=not args.no_copy_other,
-                on_progress=on_progress,
-            )
-        except ValueError as e:
-            print(f"Error: {e}", file=sys.stderr)
-            sys.exit(1)
+        return 1
 
-        print(f"\n{report.succeeded}/{len(report.files)} files translated")
-        if report.other_files_copied:
-            print(f"{report.other_files_copied} other files copied as-is")
-        for f in report.files:
-            if not f.ok:
-                print(f"  FAILED {f.source_path}: {f.error}")
+    try:
+        client = DeepSeekClient()
+    except RuntimeError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
 
-        if report.failed:
-            sys.exit(1)
+    def on_progress(i, total, rel_path):
+        print(f"  [{i}/{total}] translating {rel_path} ...")
 
-        if args.verify:
-            print(f"\nVerifying translated project in sandbox: {args.run_cmd!r}")
-            result = verify_codebase(
-                language=args.target_language,
-                project_dir=args.out,
-                run_cmd=args.run_cmd,
-                install_cmd=args.install_cmd,
-                timeout=args.timeout,
-                network=args.network,
-            )
-            print(result.stdout)
-            if result.stderr:
-                print(result.stderr, file=sys.stderr)
-            if result.error:
-                print(f"Error: {result.error}", file=sys.stderr)
-            print("PASS" if result.passed else "FAIL")
-            sys.exit(0 if result.passed else 1)
+    print(f"Translating {args.src} ({args.source_language}) -> {args.out} ({args.target_language})")
+    try:
+        report = translate_codebase(
+            client,
+            src_dir=args.src,
+            out_dir=args.out,
+            source_language=args.source_language,
+            target_language=args.target_language,
+            copy_other_files=not args.no_copy_other,
+            on_progress=on_progress,
+        )
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    print(f"\n{report.succeeded}/{len(report.files)} files translated")
+    if report.other_files_copied:
+        print(f"{report.other_files_copied} other files copied as-is")
+    for f in report.files:
+        if not f.ok:
+            print(f"  FAILED {f.source_path}: {f.error}")
+
+    if report.failed:
+        return 1
+
+    if args.verify:
+        return _verify_translated_project(args)
+
+    return 0
+
+
+def _verify_translated_project(args: argparse.Namespace) -> int:
+    print(f"\nVerifying translated project in sandbox: {args.run_cmd!r}")
+    result = verify_codebase(
+        language=args.target_language,
+        project_dir=args.out,
+        run_cmd=args.run_cmd,
+        install_cmd=args.install_cmd,
+        timeout=args.timeout,
+        network=args.network,
+    )
+    print(result.stdout)
+    if result.stderr:
+        print(result.stderr, file=sys.stderr)
+    if result.error:
+        print(f"Error: {result.error}", file=sys.stderr)
+    print("PASS" if result.passed else "FAIL")
+    return 0 if result.passed else 1
+
+
+COMMANDS = {
+    "list": cmd_list,
+    "run": cmd_run,
+    "translate": cmd_translate,
+}
+
+
+def main() -> None:
+    load_dotenv()
+    args = build_parser().parse_args()
+    sys.exit(COMMANDS[args.command](args))
 
 
 if __name__ == "__main__":
